@@ -1,0 +1,132 @@
+---
+title: "AF_reRun"
+output: html_document
+date: "2024-09-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(GenomicRanges)
+library(biomartr)
+library(motifbreakR)
+library(cowplot)
+library(readr)
+library(RColorBrewer)
+```
+1. Reading in the VEP output table
+2. Selecting relevant columns
+3. Removing all rows that do not have af (marked as "-")
+4. Taking the MAF with Michael function
+5. Transforming the table
+6. Geom density plots of the AFs
+
+```{r vep}
+
+af_table = vep %>% select(Location, Allele, UPLOADED_ALLELE, AF, AFR_AF, AMR_AF,
+                          EAS_AF, EUR_AF, SAS_AF, gnomADg_AF, gnomADg_AFR_AF, gnomADg_AMI_AF,
+                          gnomADg_AMR_AF, gnomADg_ASJ_AF, gnomADg_EAS_AF, gnomADg_FIN_AF,
+                          gnomADg_MID_AF, gnomADg_NFE_AF, gnomADg_OTH_AF, gnomADg_SAS_AF)
+
+af_table$Chr_Pos = gsub(":", "_", gsub("-.*", "", af_table$Location))
+af_table$variants = paste0(af_table$Chr_Pos, "_", af_table$UPLOADED_ALLELE)
+
+af_table = af_table %>%
+  distinct(variants, .keep_all = TRUE)
+```
+
+```{r  labels and colors}
+population_labels = c("AFR_AF" = "African",
+                      "AMR_AF" = "Admixed American",
+                      "EAS_AF" = "East Asia",
+                      "EUR_AF" = "European",
+                      "SAS_AF" = "South Asia")
+
+population_labes_gnomad = c("gnomADg_AFR_AF" = "African/American",
+                            "gnomADg_AMR_AF" = "Admixed American",
+                            "gnomADg_EAS_AF" = "East Asia",
+                            "gnomADg_FIN_AF" = "Finnish",
+                            "gnomADg_MID_AF" = "Mid Eastern",
+                            "gnomADg_NFE_AF" = "Non-Finnish European",
+                            "gnomADg_OTH_AF" = "Other combined populations",
+                            "gnomADg_SAS_AF" = "South Asian")
+
+similar_colors <- c("gnomADg_AFR_AF" = "#4B9B7A",
+                    "gnomADg_AMR_AF" = "#9F7831",
+                    "gnomADg_EAS_AF" = "#CA6728",
+                    "gnomADg_FIN_AF" = "#D43F88",
+                    "gnomADg_MID_AF" = "#75A43A",
+                    "gnomADg_NFE_AF" = "#7470AF",
+                    "gnomADg_OTH_AF" = "#666666",
+                    "gnomADg_SAS_AF" = "#DDAD3B")
+
+similar_colors2 = c("AFR_AF" = "#4B9B7A",
+                    "AMR_AF" = "#9F7831",
+                    "EAS_AF" = "#CA6728",
+                    "EUR_AF" = "#7470AF",
+                    "SAS_AF" = "#DDAD3B")
+
+```
+
+```{r remove "-"}
+af_1000G = af_table %>% select(AFR_AF, AMR_AF, EAS_AF, EUR_AF, SAS_AF)
+af_1000G[af_1000G == "-"] = NA
+af_1000G <- na.omit(af_1000G)
+af_1000G[] <- lapply(af_1000G, function(x) as.numeric(x))
+
+af_gnomad = af_table %>% select(gnomADg_AFR_AF, gnomADg_AMR_AF, gnomADg_EAS_AF,
+                               gnomADg_FIN_AF, gnomADg_MID_AF, gnomADg_NFE_AF, 
+                               gnomADg_OTH_AF, gnomADg_SAS_AF)
+af_gnomad[af_gnomad == "-"] = NA
+af_gnomad = na.omit(af_gnomad) 
+af_gnomad[] = lapply(af_gnomad, function(x) as.numeric(x))
+```
+
+```{r MAF}
+modify_af <- function(x) {
+  ifelse(x > 0.5, 1 - x, x)
+}
+
+af_1000G_maf = sapply(af_1000G, modify_af)
+af_gnomad_maf = sapply(af_gnomad, modify_af)
+```
+
+```{r transform table}
+af_1000G_maf_melted = data.frame(
+  Population = rep(colnames(af_1000G_maf), each = nrow(af_1000G_maf)),
+  Allele_Frequency = as.vector(t(af_1000G_maf))
+)
+
+af_gnomad_maf_melted = data.frame(
+  Population = rep(colnames(af_gnomad_maf), each = nrow(af_gnomad_maf)),
+  Allele_Frequency = as.vector(t(af_gnomad_maf))
+)
+```
+
+```{r af plot gnomad}
+dark2_palette = brewer.pal(8, "Dark2")
+
+ggplot(af_gnomad_maf_melted, aes(x = Allele_Frequency, color = Population)) +
+  geom_density(alpha = 0.5, size = 1.5) +  # Adjust thickness of lines 
+  scale_color_manual(values = similar_colors, labels = population_labes_gnomad) + 
+  labs(title = "GnomAD",
+       x = "Allele frequency",
+       y = "Density",
+       color = "Population") +  # Use legend names from population_labes_gnomad
+  theme_minimal()
+
+```
+
+```{r af plot 1000Genomes}
+ggplot(af_1000G_maf_melted, aes(x = Allele_Frequency, color = Population)) +
+  geom_density(alpha = 0.5, size = 1.5) + 
+  scale_color_manual(values = similar_colors2, labels = population_labels) + 
+  labs(title = "1000 Genomes",
+       x = "Allele frequency",
+       y = "Density",
+       color = "Population") +  
+  theme_minimal()
+```
